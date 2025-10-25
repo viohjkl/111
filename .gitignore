@@ -1,0 +1,11 @@
+# Mock测试文件
+mock-server.js
+
+# 视频文件
+*.mp4
+
+# 提示词 
+prompt.md
+
+# json配置
+*.json

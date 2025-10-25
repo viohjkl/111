@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>视频字幕添加</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- 头部区域 -->
+    <header class="header">
+        <h1>视频字幕添加</h1>
+    </header>
+
+    <!-- 主要内容区域 -->
+    <main class="main-container">
+        <!-- 上传区域 -->
+        <section class="upload-section">
+            <div class="upload-card">
+                <h2>上传视频</h2>
+                <div class="file-input-wrapper">
+                    <input type="file" id="videoInput" accept=".mp4" />
+                    <label for="videoInput" class="file-input-label">
+                        <span class="upload-icon">📁</span>
+                        <span class="upload-text">选择MP4文件</span>
+                    </label>
+                </div>
+                <div id="uploadStatus" class="status-message"></div>
+            </div>
+        </section>
+
+        <!-- 预览区域 -->
+        <section class="preview-section" id="previewSection" style="display: none;">
+            <div class="preview-card">
+                <h2>视频预览</h2>
+                <video id="previewVideo" controls></video>
+                <div class="video-info">
+                    <p id="fileName"></p>
+                    <p id="fileSize"></p>
+                </div>
+                <div class="preview-actions">
+                    <button id="previewUploadBtn" class="upload-btn">确认上传</button>
+                    <button id="reselectBtn" class="upload-btn secondary">重新选择</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- 处理状态区域 -->
+        <section class="status-section" id="statusSection" style="display: none;">
+            <div class="status-card">
+                <h2>处理状态</h2>
+                <div class="status-indicator">
+                    <div class="status-icon" id="statusIcon"></div>
+                    <span id="statusText">等待中...</span>
+                </div>
+                <div class="loading-spinner" id="loadingSpinner" style="display: none;"></div>
+                <div class="status-details">
+                    <p id="taskId"></p>
+                    <p id="processingTime"></p>
+                </div>
+            </div>
+        </section>
+
+        <!-- 结果区域 -->
+        <section class="result-section" id="resultSection" style="display: none;">
+            <div class="result-card">
+                <h2>处理结果</h2>
+                <video id="resultVideo" controls autoplay></video>
+                <div class="result-actions">
+                    <button id="downloadBtn" class="download-btn">
+                        下载视频
+                    </button>
+                    <button id="resetBtn" class="reset-btn">
+                        再次上传
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- 错误消息区域 -->
+        <div class="error-toast" id="errorToast" style="display: none;">
+            <span class="error-icon">❌</span>
+            <span id="errorMessage"></span>
+            <button class="error-close" id="errorClose">×</button>
+        </div>
+    </main>
+
+    <script src="script.js"></script>
+</body>
+</html>
