@@ -9,3 +9,6 @@ prompt.md
 
 # json配置
 *.json
+
+# markdown文件
+*.md

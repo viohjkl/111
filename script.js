@@ -1,13 +1,17 @@
 // API 配置
 const API_CONFIG = {
-  uploadEndpoint: "/api/upload",
-  resultEndpoint: "/api/result",
+  baseUrl: "http://localhost:5000",
+  uploadInit: "/upload_init",
+  uploadChunk: "/upload_chunk",
+  downloadInit: "/download_init",
+  downloadChunk: "/download_chunk",
+  downloadComplete: "/download_complete",
 };
 
 // 应用状态
 const appState = {
   selectedFile: null,
-  taskId: null,
+  fileId: null,
   startTime: null,
   processedVideoBlob: null,
   pollInterval: null,
@@ -76,7 +80,7 @@ const stateManager = {
     }
     Object.assign(appState, {
       selectedFile: null,
-      taskId: null,
+      fileId: null,
       startTime: null,
       processedVideoBlob: null,
       pollRetryCount: 0,
@@ -238,27 +242,49 @@ const videoUploader = {
     uiManager.updateUploadStatus("正在上传...", "uploading");
 
     try {
-      const formData = new FormData();
-      formData.append("video", appState.selectedFile);
+      const initResponse = await fetch(`${API_CONFIG.baseUrl}${API_CONFIG.uploadInit}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          chunk_num: 1,
+        }),
+      });
 
-      const response = await fetch(API_CONFIG.uploadEndpoint, {
+      if (!initResponse.ok) {
+        throw new Error(`初始化上传失败: ${initResponse.status}`);
+      }
+
+      const initResult = await initResponse.json();
+      if (!initResult.file_id) {
+        throw new Error("初始化响应格式错误");
+      }
+
+      appState.fileId = initResult.file_id;
+
+      const formData = new FormData();
+      formData.append("file_id", appState.fileId);
+      formData.append("chunk_index", 0);
+      formData.append("chunk_size", appState.selectedFile.size);
+      formData.append("chunk_data", appState.selectedFile);
+
+      const chunkResponse = await fetch(`${API_CONFIG.baseUrl}${API_CONFIG.uploadChunk}`, {
         method: "POST",
         body: formData,
       });
 
-      if (!response.ok) {
-        throw new Error(`上传失败: ${response.status} ${response.statusText}`);
+      if (!chunkResponse.ok) {
+        throw new Error(`上传分片失败: ${chunkResponse.status}`);
       }
 
-      const result = await response.json();
+      const chunkResult = await chunkResponse.json();
 
-      if (!result.success || !result.taskId) {
-        throw new Error(result.message || "上传响应格式错误");
+      if (chunkResult.status !== "completed") {
+        throw new Error("上传未完成");
       }
 
-      appState.taskId = result.taskId;
       appState.startTime = Date.now();
-
       uiManager.updateUploadStatus("上传成功,正在处理视频...", "success");
       videoUploader.showProcessing();
       videoUploader.startPolling();
@@ -272,7 +298,7 @@ const videoUploader = {
 
   showProcessing: () => {
     uiManager.showSection("status");
-    elements.taskId.textContent = `任务ID: ${appState.taskId}`;
+    elements.taskId.textContent = `任务ID: ${appState.fileId}`;
     uiManager.updateProcessingStatus("processing");
     uiManager.toggleSpinner(true);
   },
@@ -284,39 +310,37 @@ const videoUploader = {
   },
 
   poll: async () => {
-    if (!appState.taskId) return;
+    if (!appState.fileId) return;
 
     try {
-      const response = await fetch(
-        `${API_CONFIG.resultEndpoint}?id=${appState.taskId}`
+      const initResponse = await fetch(
+        `${API_CONFIG.baseUrl}${API_CONFIG.downloadInit}/${appState.fileId}`
       );
 
-      if (!response.ok) {
-        throw new Error(`查询失败: ${response.status}`);
+      if (!initResponse.ok) {
+        if (initResponse.status === 500) {
+          const errorData = await initResponse.json();
+          videoUploader.handleFailed(errorData.error || "处理失败");
+          return;
+        } else {
+          throw new Error(`查询失败: ${initResponse.status}`);
+        }
       }
 
-      const contentType = response.headers.get("content-type");
-
-      // 如果返回的是视频文件,说明处理完成
-      if (contentType && contentType.includes("video")) {
-        const videoBlob = await response.blob();
-        appState.pollRetryCount = 0;
-        videoUploader.handleComplete(videoBlob);
-        return;
-      }
-
-      // 否则返回的是状态信息
-      const statusData = await response.json();
+      const initData = await initResponse.json();
       appState.pollRetryCount = 0;
 
-      if (statusData.error) {
-        throw new Error(statusData.error);
-      }
-
-      uiManager.updateProcessingStatus(statusData.status, statusData.message);
-
-      if (statusData.status === "failed") {
-        videoUploader.handleFailed(statusData.message || "处理失败");
+      if (initData.status === "processing") {
+        // 还在处理中
+        uiManager.updateProcessingStatus("processing");
+      } else if (initData.status === "ready") {
+        // 处理完成，下载分片
+        const videoBlob = await videoUploader.downloadChunks(initData);
+        if (videoBlob) {
+          videoUploader.handleComplete(videoBlob);
+        }
+      } else if (initData.error) {
+        throw new Error(initData.error);
       }
     } catch (error) {
       console.error("查询错误:", error);
@@ -333,6 +357,27 @@ const videoUploader = {
     }
   },
 
+  downloadChunks: async (initData) => {
+    try {
+      const chunkResponse = await fetch(
+        `${API_CONFIG.baseUrl}${API_CONFIG.downloadChunk}/${appState.fileId}/0`
+      );
+
+      if (!chunkResponse.ok) {
+        throw new Error(`下载分片失败: ${chunkResponse.status}`);
+      }
+
+      const videoBlob = await chunkResponse.blob();
+
+      await fetch(`${API_CONFIG.baseUrl}${API_CONFIG.downloadComplete}/${appState.fileId}`);
+
+      return videoBlob;
+    } catch (error) {
+      console.error("下载错误:", error);
+      throw error;
+    }
+  },
+
   handleComplete: (videoBlob) => {
     clearInterval(appState.pollInterval);
     appState.pollInterval = null;
@@ -346,8 +391,12 @@ const videoUploader = {
     clearInterval(appState.pollInterval);
     appState.pollInterval = null;
     uiManager.showError(message);
-    uiManager.setButtonState(elements.previewUploadBtn, false);
-    uiManager.updateUploadStatus("处理失败,请重新上传", "error");
+    uiManager.updateUploadStatus("处理失败", "error");
+
+    setTimeout(() => {
+      fileHandler.reset();
+      uiManager.showSection("upload");
+    }, 2000);
   },
 
   showResult: (videoBlob) => {
