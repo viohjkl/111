@@ -1,7 +1,6 @@
 // API 配置
 const API_CONFIG = {
   uploadEndpoint: "/api/upload",
-  statusEndpoint: "/api/status",
   resultEndpoint: "/api/result",
 };
 
@@ -128,7 +127,7 @@ const uiManager = {
     const statusConfig = {
       waiting: { text: "等待处理...", icon: "waiting" },
       processing: { text: "正在处理...", icon: "processing" },
-      completed: { text: "处理完成！", icon: "completed" },
+      completed: { text: "处理完成!", icon: "completed" },
       failed: { text: "处理失败", icon: "error" },
     };
 
@@ -260,12 +259,12 @@ const videoUploader = {
       appState.taskId = result.taskId;
       appState.startTime = Date.now();
 
-      uiManager.updateUploadStatus("上传成功，正在处理视频...", "success");
+      uiManager.updateUploadStatus("上传成功,正在处理视频...", "success");
       videoUploader.showProcessing();
       videoUploader.startPolling();
     } catch (error) {
       console.error("上传错误:", error);
-      uiManager.showError(error.message || "上传失败，请重试");
+      uiManager.showError(error.message || "上传失败,请重试");
       uiManager.updateUploadStatus("上传失败", "error");
       uiManager.setButtonState(elements.previewUploadBtn, false);
     }
@@ -289,44 +288,58 @@ const videoUploader = {
 
     try {
       const response = await fetch(
-        `${API_CONFIG.statusEndpoint}?id=${appState.taskId}`
+        `${API_CONFIG.resultEndpoint}?id=${appState.taskId}`
       );
 
       if (!response.ok) {
-        throw new Error(`状态查询失败: ${response.status}`);
+        throw new Error(`查询失败: ${response.status}`);
       }
 
+      const contentType = response.headers.get("content-type");
+
+      // 如果返回的是视频文件,说明处理完成
+      if (contentType && contentType.includes("video")) {
+        const videoBlob = await response.blob();
+        appState.pollRetryCount = 0;
+        videoUploader.handleComplete(videoBlob);
+        return;
+      }
+
+      // 否则返回的是状态信息
       const statusData = await response.json();
       appState.pollRetryCount = 0;
 
-      uiManager.updateProcessingStatus(statusData.status);
+      if (statusData.error) {
+        throw new Error(statusData.error);
+      }
 
-      if (statusData.status === "completed") {
-        videoUploader.handleComplete();
-      } else if (statusData.status === "failed") {
+      uiManager.updateProcessingStatus(statusData.status, statusData.message);
+
+      if (statusData.status === "failed") {
         videoUploader.handleFailed(statusData.message || "处理失败");
       }
     } catch (error) {
-      console.error("状态查询错误:", error);
+      console.error("查询错误:", error);
       appState.pollRetryCount++;
 
       if (appState.pollRetryCount >= appState.maxPollRetries) {
-        videoUploader.handleFailed(
-          "状态查询失败次数过多，请检查网络连接或重新上传"
-        );
+        videoUploader.handleFailed("查询失败次数过多,请检查网络连接或重新上传");
       } else if (appState.pollRetryCount >= 3) {
         uiManager.updateProcessingStatus(
           "error",
-          `网络不稳定，正在重试... (${appState.pollRetryCount}/${appState.maxPollRetries})`
+          `网络不稳定,正在重试... (${appState.pollRetryCount}/${appState.maxPollRetries})`
         );
       }
     }
   },
 
-  handleComplete: () => {
+  handleComplete: (videoBlob) => {
     clearInterval(appState.pollInterval);
     appState.pollInterval = null;
-    videoUploader.fetchResult();
+    appState.processedVideoBlob = videoBlob;
+
+    uiManager.toggleSpinner(false);
+    setTimeout(() => videoUploader.showResult(videoBlob), 500);
   },
 
   handleFailed: (message) => {
@@ -334,38 +347,14 @@ const videoUploader = {
     appState.pollInterval = null;
     uiManager.showError(message);
     uiManager.setButtonState(elements.previewUploadBtn, false);
-    uiManager.updateUploadStatus("处理失败，请重新上传", "error");
-  },
-
-  fetchResult: async () => {
-    try {
-      const response = await fetch(
-        `${API_CONFIG.resultEndpoint}?id=${appState.taskId}`
-      );
-
-      if (!response.ok) {
-        throw new Error(`获取处理结果失败: ${response.status}`);
-      }
-
-      const videoBlob = await response.blob();
-      appState.processedVideoBlob = videoBlob;
-
-      uiManager.toggleSpinner(false);
-      setTimeout(() => videoUploader.showResult(videoBlob), 500);
-    } catch (error) {
-      console.error("获取处理结果错误:", error);
-      uiManager.showError("获取处理结果失败，请重试");
-      uiManager.toggleSpinner(false);
-      uiManager.setButtonState(elements.previewUploadBtn, false);
-      uiManager.updateUploadStatus("获取结果失败", "error");
-    }
+    uiManager.updateUploadStatus("处理失败,请重新上传", "error");
   },
 
   showResult: (videoBlob) => {
     const videoURL = URL.createObjectURL(videoBlob);
     elements.resultVideo.src = videoURL;
     uiManager.showSection("result");
-    uiManager.updateUploadStatus("处理完成！", "success");
+    uiManager.updateUploadStatus("处理完成!", "success");
   },
 };
 
